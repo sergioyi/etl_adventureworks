@@ -1,0 +1,4 @@
+__pycache__/*
+/sqlite/__pycache__/*
+AdventureWorks.db
+StagingAdventureWorks.db

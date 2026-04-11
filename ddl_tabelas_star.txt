@@ -1,0 +1,93 @@
+
+# Criando as tabellas
+cursor_postgres.execute("""
+  CREATE TABLE IF NOT EXISTS staging.DimTempo (
+    IdData INT PRIMARY KEY,
+    Data DATE,
+    Ano INT,
+    Mes INT,
+    NomeMes VARCHAR(20),
+    Trimestre INT );
+  """)
+cursor_postgres.execute("""
+ CREATE TABLE IF NOT EXISTS staging.DimProduto (
+  IdProduto INT PRIMARY KEY,
+  Nome VARCHAR(255),
+  Categoria VARCHAR(100),
+  Subcategoria VARCHAR(100),
+  Preco DECIMAL(10,2),
+  Custo DECIMAL(10,2) );
+  """)
+cursor_postgres.execute("""
+CREATE TABLE IF NOT EXISTS staging.DimCliente (
+  IdCliente INT PRIMARY KEY,
+  TipoCliente VARCHAR(50) );
+  """)
+cursor_postgres.execute("""
+CREATE TABLE IF NOT EXISTS staging.DimVendedor (
+  IdVendedor INT PRIMARY KEY,
+  Meta DECIMAL(10,2) );
+  """)
+cursor_postgres.execute("""
+CREATE TABLE IF NOT EXISTS staging.DimRegiao (
+  IdRegiao INT PRIMARY KEY,
+  NomeRegiao VARCHAR(100),
+  Pais VARCHAR(100),
+  Grupo VARCHAR(100) );
+  """)
+
+conn_postgres.commit()
+
+cursor_postgres.execute("""
+CREATE TABLE IF NOT EXISTS staging.FatoVendas (
+  IdPedido INT,
+  IdProduto INT,
+  IdCliente INT,
+  IdVendedor INT,
+  IdRegiao INT,
+  IdData INT,
+  DataEnvio DATE,
+  Quantidade INT,
+  PrecoUnitario DECIMAL(10,2),
+  Receita DECIMAL(12,2),
+  Custo DECIMAL(12,2),
+  Lucro DECIMAL(12,2),
+  PRIMARY KEY (IdPedido, IdProduto),
+  FOREIGN KEY (IdProduto) REFERENCES DimProduto(IdProduto),
+  FOREIGN KEY (IdCliente) REFERENCES DimCliente(IdCliente),
+  FOREIGN KEY (IdVendedor) REFERENCES DimVendedor(IdVendedor),
+  FOREIGN KEY (IdRegiao) REFERENCES DimRegiao(IdRegiao),
+  FOREIGN KEY (IdData) REFERENCES DimTempo(IdData) );
+  """)
+cursor_postgres.execute("""
+CREATE TABLE IF NOT EXISTS staging.FatoEstoque (
+  IdProduto INT,
+  IdData INT,
+  QuantidadeEstoque INT,
+  PRIMARY KEY (IdProduto, IdData),
+  FOREIGN KEY (IdProduto) REFERENCES DimProduto(IdProduto),
+  FOREIGN KEY (IdData) REFERENCES DimTempo(IdData) );
+  """)
+
+cursor_postgres.commit()
+
+# simples inserção etl
+cursor_sqlserver.execute("""
+SELECT
+    TerritoryID,
+    Name,
+    CountryRegionCode,
+    [Group]
+FROM Sales.SalesTerritory
+""")
+dados = cursor_sqlserver.fetchall()
+
+insert_query = """
+INSERT INTO staging.DimRegiao (
+    IdRegiao,
+    NomeRegiao,
+    Pais,
+    Grupo
+)
+VALUES (%s, %s, %s, %s)
+"""
