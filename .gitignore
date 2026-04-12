@@ -3,3 +3,4 @@ __pycache__/*
 /staging/__pycache__/*
 AdventureWorks.db
 StagingAdventureWorks.db
+.env

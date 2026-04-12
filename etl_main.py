@@ -7,6 +7,9 @@ from staging.create_table_staging import CreateTablesStaging
 from  staging.insert_table_staging import InsertTableStaging
 from sqlite.create_table_staging_sqlite import CreateTablesStagingSqlite
 from insert_sqlite import InsertSqlite
+import os
+from dotenv import load_dotenv
+load_dotenv()
 
 
 
@@ -14,10 +17,10 @@ from insert_sqlite import InsertSqlite
 
 #sqlserver_conn = SQLServerConnection(
 conn_oltp = SQLServerConnection(
-    server="127.0.0.1,1433",
-    database="AdventureWorks2022",
-    username="sa",
-    password="SuaSenhaForte123!"
+    server=os.getenv("SERVER"),
+    database=os.getenv("DATABASE_OLTP"),
+    username=os.getenv("USERNAME_OLTP"),
+    password=os.getenv("PASSWORD_OLTP")
 )
 #sqlserver_conn.connect()
 conn_oltp.connect()
@@ -28,11 +31,11 @@ cursor_oltp = conn_oltp.cursor()
 
 #conn_postgres = PostgresConnection(
 conn_olap = PostgresConnection(
-    host="localhost",
-    port=5432,
-    database="adventureworks",
-    user="postgres",
-    password="postgres"
+    host=os.getenv("HOST"),
+    port=os.getenv("PORT"),
+    database=os.getenv("DATABASE_OLAP"),
+    user=os.getenv("USERNAME_OLAP"),
+    password=os.getenv("PASSWORD_OLAP")
 )
 #conn_postgres.connect()
 conn_olap.connect()
@@ -148,6 +151,7 @@ processos = {
         "coluna_data_index": 5
     }
 }
+
 def verificar_carga_inicial():
     cursor_olap.execute("""
         SELECT carga_inicial FROM staging.controle_carga

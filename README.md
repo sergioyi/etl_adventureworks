@@ -6,6 +6,7 @@ Esse projeto tem o objetivo de demostrar o funcionamento de um Data WareHouse pe
 * PostgreSQL
 * Python 3.11>
 * DBaver ou alguma outra IDE dados
+* Crie o arquivo `.env` usando de exemplo o `.env.example`
 
 ## controle de carga no OLAP
 crie a tabela controle de carga e faça a inserção inicial manualmnente:
