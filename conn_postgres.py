@@ -1,5 +1,5 @@
 import psycopg2
-# Faça um módulo de conexão com o PostgreSQL, para ser importado no etl_stating.py
+
 class PostgresConnection:
     def __init__(self, host, port, database, user, password):
         self.host = host
@@ -21,3 +21,10 @@ class PostgresConnection:
             print("Conexão com PostgreSQL estabelecida com sucesso!")
         except Exception as e:
             print(f"Erro ao conectar ao PostgreSQL: {e}")
+
+    def cursor(self):
+        return self.connection.cursor()
+
+    def close(self):
+        if self.connection:
+            self.connection.close()

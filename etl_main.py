@@ -1,9 +1,10 @@
 import sqlite3
 from time import sleep
-#from conn_sqlsqerver import SQLServerConnection
-#from conn_postgres import PostgresConnection
-
-#from create_table_stating import CreateTablesStaging
+from conn_sqlsqerver import SQLServerConnection
+from conn_postgres import PostgresConnection
+from datetime import datetime
+from staging.create_table_staging import CreateTablesStaging
+from  staging.insert_table_staging import InsertTableStaging
 from sqlite.create_table_staging_sqlite import CreateTablesStagingSqlite
 from insert_sqlite import InsertSqlite
 
@@ -12,34 +13,38 @@ from insert_sqlite import InsertSqlite
 # #  CONEXÃO COM BANCO DE DADOS  # #
 
 #sqlserver_conn = SQLServerConnection(
-#    server="127.0.0.1,1433",
-#    database="AdventureWorks2022",
-#    username="sa",
-#    password="SuaSenhaForte123!"
-#)
+conn_oltp = SQLServerConnection(
+    server="127.0.0.1,1433",
+    database="AdventureWorks2022",
+    username="sa",
+    password="SuaSenhaForte123!"
+)
 #sqlserver_conn.connect()
+conn_oltp.connect()
 
 # Usar para executar consultas e operações no banco de dados SQL Server
 #cursor_sqlserver = sqlserver_conn.cursor()
+cursor_oltp = conn_oltp.cursor()
 
 #conn_postgres = PostgresConnection(
-#    host="localhost",
-#    port=5432,
-#    database="adventureworks",
-#    user="postgres",
-#    password="postgres"
-#)
+conn_olap = PostgresConnection(
+    host="localhost",
+    port=5432,
+    database="adventureworks",
+    user="postgres",
+    password="postgres"
+)
 #conn_postgres.connect()
+conn_olap.connect()
 
 # Usar para executar consultas e operações no banco de dados PostgreSQL
 #cursor_postgres = conn_postgres.cursor()
 
 # OLTP - Online Transaction Processing
-conn_oltp = sqlite3.connect('AdventureWorks.db')
-cursor_oltp = conn_oltp.cursor()
+#conn_oltp = sqlite3.connect('AdventureWorks.db')
 
 # OLAP - Online Analytical Processing
-conn_olap = sqlite3.connect('StagingAdventureWorks.db')
+#conn_olap = sqlite3.connect('StagingAdventureWorks.db')
 cursor_olap = conn_olap.cursor()
 
 
@@ -48,78 +53,230 @@ cursor_olap = conn_olap.cursor()
 
 #criar_tabelas_staging = CreateTablesStaging(cursor_postgres)
 
-criar_tabelas_staging_sqlite = CreateTablesStagingSqlite(cursor_olap)
-criar_tabelas_staging_sqlite.create_tables()
+#criar_tabelas_staging_sqlite = CreateTablesStagingSqlite(cursor_olap)
+#criar_tabelas_staging_sqlite.create_tables()
+criar_tabelas_staging = CreateTablesStaging(cursor_olap, conn_olap)
+criar_tabelas_staging.create_tables()
 
 
 # # #  VERIFICAR DADOS NOVOS E PROCESSAR O ETL COM SQLITE  # #
 
+processos = {
+
+    "SalesOrderHeader": {
+        "query_max": "SELECT MAX(ModifiedDate) FROM Sales.SalesOrderHeader",
+        "query_incremental": """
+            SELECT 
+                SalesOrderID,
+                OrderDate,
+                ShipDate,
+                CustomerID,
+                SalesPersonID,
+                TerritoryID,
+                SubTotal,
+                ModifiedDate
+            FROM Sales.SalesOrderHeader
+            WHERE ModifiedDate > ?
+        """,
+        "load_function": "insert_salesorderheader",
+        "coluna_data_index": 7
+    },
+
+    "SalesPerson": {
+        "query_max": "SELECT MAX(ModifiedDate) FROM Sales.SalesPerson",
+        "query_incremental": """
+            SELECT 
+                BusinessEntityID,
+                TerritoryID,
+                SalesQuota,
+                Bonus,
+                CommissionPct,
+                ModifiedDate
+            FROM Sales.SalesPerson
+            WHERE ModifiedDate > ?
+        """,
+        "load_function": "insert_salesperson",
+        "coluna_data_index": 5
+    },
+
+    "SalesTerritory": {
+        "query_max": "SELECT MAX(ModifiedDate) FROM Sales.SalesTerritory",
+        "query_incremental": """
+            SELECT 
+                TerritoryID,
+                Name,
+                CountryRegionCode,
+                [Group],
+                ModifiedDate
+            FROM Sales.SalesTerritory
+            WHERE ModifiedDate > ?
+        """,
+        "load_function": "insert_salesTerritory",
+        "coluna_data_index": 4
+    },
+
+    "Product": {
+        "query_max": "SELECT MAX(ModifiedDate) FROM Production.Product",
+        "query_incremental": """
+            SELECT 
+                ProductID,
+                Name,
+                StandardCost,
+                ListPrice,
+                ModifiedDate
+            FROM Production.Product
+            WHERE ModifiedDate > ?
+        """,
+        "load_function": "insert_product",
+        "coluna_data_index": 4
+    },
+
+    "SalesOrderDetail": {
+        "query_max": "SELECT MAX(ModifiedDate) FROM Sales.SalesOrderDetail",
+        "query_incremental": """
+            SELECT 
+                SalesOrderID,
+                ProductID,
+                OrderQty,
+                UnitPrice,
+                LineTotal,
+                ModifiedDate
+            FROM Sales.SalesOrderDetail
+            WHERE ModifiedDate > ?
+        """,
+        "load_function": "insert_salesorderdetail",
+        "coluna_data_index": 5
+    }
+}
+def verificar_carga_inicial():
+    cursor_olap.execute("""
+        SELECT carga_inicial FROM staging.controle_carga
+    """)
+    
+    result = cursor_olap.fetchone()
+
+    if not result or result[0] == False:
+        return False
+    
+    return True
+
+
+def carga_inicial_staging():
+    insert = InsertTableStaging(cursor_olap, conn_olap)
+    print("Rodando carga inicial...")
+    
+    # Territory
+    cursor_oltp.execute("SELECT TerritoryID, Name, CountryRegionCode, [Group], ModifiedDate FROM Sales.SalesTerritory")
+    rows = cursor_oltp.fetchall()
+
+    insert.insert_salesTerritory(rows)
+
+    # Product
+    cursor_oltp.execute("SELECT ProductID, Name, StandardCost, ListPrice, ModifiedDate FROM Production.Product")
+    rows = cursor_oltp.fetchall()
+    insert.insert_product(rows)
+
+    # SalesPerson
+    cursor_oltp.execute(" SELECT BusinessEntityID, TerritoryID, SalesQuota, Bonus, CommissionPct, ModifiedDate FROM Sales.SalesPerson ")
+    rows = cursor_oltp.fetchall()
+    insert.insert_salesperson(rows)
+
+    # SalesOrderHeader
+    cursor_oltp.execute("SELECT SalesOrderID, OrderDate, ShipDate, CustomerID, SalesPersonID, TerritoryID, SubTotal, ModifiedDate FROM Sales.SalesOrderHeader")
+    rows = cursor_oltp.fetchall()
+    insert.insert_salesorderheader(rows)
+
+    # SalesOrderDetail
+    cursor_oltp.execute(" SELECT SalesOrderID, ProductID, OrderQty, UnitPrice, LineTotal, ModifiedDate FROM Sales.SalesOrderDetail")
+    rows = cursor_oltp.fetchall()
+    insert.insert_salesorderdetail(rows)
+
+
+
+carga_inicial_staging()
+
 def verificar_dados_novos():
+
     print("Verificando dados novos...")
 
-    # 1ª etapa: verificar a última data de execução do processo de ETL no controle de ETL
-    cursor_olap.execute("""SELECT ultima_execucao FROM controle_etl WHERE processo = 'SalesOrderHeader';""")
-    ultima_execucao = cursor_olap.fetchone()[0]
+    # buscar controle
+    cursor_olap.execute("""
+        SELECT processo, ultima_execucao 
+        FROM staging.controle_etl;
+    """)
 
-    # 2ª etapa: verificar a última data de modificação na tabela SalesOrderHeader do banco OLTP
-    cursor_oltp.execute("""SELECT MAX(ModifiedDate) AS MaxModifiedDate FROM SalesOrderHeader;""")
-    max_modified_date = cursor_oltp.fetchone()[0]
+    controle = {row[0]: row[1] for row in cursor_olap.fetchall()}
 
-    # 3ª etapa: comparar as datas para determinar se há dados novos a serem processados
-    if max_modified_date > ultima_execucao:
-        print("Dados novos encontrados. Iniciando processo de ETL...")
-        # SE A CONSULTA DIZER QUE EXISTE DADOS NOVOS, ENTÃO É FEITO O PROCESSO DE ETL PARA A TABELA SalesOrderHeader
-        # SELECT incremental
-        cursor_oltp.execute(f"""
-        SELECT *
-        FROM SalesOrderHeader
-        WHERE ModifiedDate > '{ultima_execucao}'
-        """)
+    load_staging = InsertTableStaging(cursor_olap, conn_olap)
 
+    for processo, config in processos.items():
+
+        ultima_execucao = controle.get(processo, datetime(1900, 1, 1))
+
+        # pegar última modificação
+        cursor_oltp.execute(config["query_max"])
+        max_modified = cursor_oltp.fetchone()[0]
+
+        if not max_modified or max_modified <= ultima_execucao:
+            print(f"{processo}: sem atualização")
+            continue
+
+        print(f"{processo}: atualizado, executando ETL...")
+
+        # extract
+        cursor_oltp.execute(config["query_incremental"], (ultima_execucao,))
         rows = cursor_oltp.fetchall()
 
-        # SE A CONSULTA DIZER TRUE PARA DADOS NOVOS, ENTÃO É FEITO O PROCESSO DE ETL PARA A TABELA SalesOrderHeader
-        
-        inserir_dados_sqlite = InsertSqlite(conn_olap, cursor_olap)
-        inserir_dados_sqlite.inserir_dados_salesorderheader(rows)
+        if not rows:
+            continue
 
-        #cursor_olap.executemany("""
-        #INSERT OR REPLACE INTO SalesOrderHeader (
-        #    SalesOrderID,
-        #    OrderDate,
-        #    ShipDate,
-        #    CustomerID,
-        #    SalesPersonID,
-        #    TerritoryID,
-        #    SubTotal,
-        #    ModifiedDate
-        #) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        #""", rows)
-        #conn_olap.commit()
-        
-        # ATUALIZAR A DATA DE ÚLTIMA EXECUÇÃO NO CONTROLE DE ETL
-        if rows:
-            max_data = max(row[7] for row in rows)
+        # load dinâmico
+        getattr(load_staging, config["load_function"])(rows)
 
-            cursor_olap.execute("""
-            UPDATE controle_etl
-            SET ultima_execucao = ?
-            WHERE processo = 'SalesOrderHeader'
-            """, (max_data,))
+        # atualizar controle
+        max_data = max(row[config["coluna_data_index"]] for row in rows)
 
-            conn_olap.commit()
+        cursor_olap.execute("""
+            UPDATE staging.controle_etl
+            SET ultima_execucao = %s
+            WHERE processo = %s
+        """, (max_data, processo))
 
-            print(f"{len(rows)} registros processados")
-        else:
-            print("Nenhum dado novo")
+        conn_olap.connection.commit()
+
+        print(f"{processo}: {len(rows)} registros processados")
 
 
 
 
 
 
+if not verificar_carga_inicial():
+    print("Executando carga inicial...")
+    carga_inicial_staging()
+    
+    # dados iniciais para controle do processo ETL
+    cursor_olap.execute("""
+        INSERT INTO staging.controle_etl (processo, ultima_execucao)
+        VALUES 
+        ('Product', '1900-01-01'),
+        ('SalesPerson', '1900-01-01'),
+        ('SalesTerritory', '1900-01-01'),
+        ('SalesOrderHeader', '1900-01-01'),
+        ('SalesOrderDetail', '1900-01-01')
+        ON CONFLICT (processo) DO NOTHING;""")
+    conn_olap.connection.commit()
+
+    cursor_olap.execute("""
+        UPDATE staging.controle_carga
+        SET carga_inicial = TRUE
+    """)
+    conn_olap.connection.commit()
 
 
+else:
+    print("Carga inicial já realizada. Rodando incremental...")
+    verificar_dados_novos()
 
 # Mantendo a aplicação ligada
 while True:

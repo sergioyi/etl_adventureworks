@@ -7,4 +7,17 @@ Esse projeto tem o objetivo de demostrar o funcionamento de um Data WareHouse pe
 * Python 3.11>
 * DBaver ou alguma outra IDE dados
 
-O projeto também conta com uma versão sem Bancos de dados instalados na pasta `/sqlite` fazendo uso apenas do Python 
+## controle de carga no OLAP
+crie a tabela controle de carga e faça a inserção inicial manualmnente:
+
+```sql
+CREATE SCHEMA staging AUTHORIZATION postgres;
+-- DDL
+CREATE TABLE IF NOT EXISTS staging.controle_carga (
+    carga_inicial BOOLEAN
+);
+-- INSERT
+INSERT INTO staging.controle_carga (carga_inicial)
+VALUES (FALSE);
+```
+
