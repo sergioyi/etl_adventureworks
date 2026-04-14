@@ -1,12 +1,9 @@
-import sqlite3
 from time import sleep
 from conn_sqlsqerver import SQLServerConnection
 from conn_postgres import PostgresConnection
 from datetime import datetime
 from staging.create_table_staging import CreateTablesStaging
 from  staging.insert_table_staging import InsertTableStaging
-from sqlite.create_table_staging_sqlite import CreateTablesStagingSqlite
-from insert_sqlite import InsertSqlite
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -43,11 +40,6 @@ conn_olap.connect()
 # Usar para executar consultas e operações no banco de dados PostgreSQL
 #cursor_postgres = conn_postgres.cursor()
 
-# OLTP - Online Transaction Processing
-#conn_oltp = sqlite3.connect('AdventureWorks.db')
-
-# OLAP - Online Analytical Processing
-#conn_olap = sqlite3.connect('StagingAdventureWorks.db')
 cursor_olap = conn_olap.cursor()
 
 
@@ -56,8 +48,6 @@ cursor_olap = conn_olap.cursor()
 
 #criar_tabelas_staging = CreateTablesStaging(cursor_postgres)
 
-#criar_tabelas_staging_sqlite = CreateTablesStagingSqlite(cursor_olap)
-#criar_tabelas_staging_sqlite.create_tables()
 criar_tabelas_staging = CreateTablesStaging(cursor_olap, conn_olap)
 criar_tabelas_staging.create_tables()
 
