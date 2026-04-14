@@ -8,6 +8,7 @@ from staging.insert_table_staging import InsertTableStaging
 from dw.ddl_tabelas_star import CreateTablesDW
 
 from utils.processos import processos
+from utils.processos_dw import processos_dw
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -289,7 +290,46 @@ def verificar_dados_novos():
         print(f"{processo}: {len(rows)} registros processados")
 
 
+from dw.insert_dw import InsertDW
+from utils.processos_dw import processos_dw
 
+def verificar_dados_novos_dw():
+    print("Verificando dados novos DW...")
+
+    cursor_olap.execute("""
+        SELECT processo, ultima_execucao 
+        FROM dw.controle_etl;
+    """)
+
+    controle = {row[0]: row[1] for row in cursor_olap.fetchall()}
+
+    load_dw = InsertDW(cursor_olap, conn_olap)
+
+    for processo, config in processos_dw.items():
+
+        ultima_execucao = controle.get(processo, datetime(1900, 1, 1))
+
+        # pega última data do staging
+        cursor_olap.execute(config["query_max"])
+        max_data = cursor_olap.fetchone()[0]
+
+        if not max_data or max_data <= ultima_execucao:
+            print(f"{processo}: sem atualização")
+            continue
+
+        print(f"{processo}: atualizando DW...")
+
+        # executa carga
+        getattr(load_dw, config["load_function"])()
+
+        # atualiza controle
+        cursor_olap.execute("""
+            UPDATE dw.controle_etl
+            SET ultima_execucao = %s
+            WHERE processo = %s
+        """, (max_data, processo))
+
+        conn_olap.connection.commit()
 
 
 def inicializar_controle_etl(cursor, conn, schema, processos):
@@ -374,6 +414,6 @@ if not verificar_carga_inicial("dw"):
 
 # Mantendo a aplicação ligada
 while True:
-    verificar_dados_novos()
-    sleep(30)  # Espera por 30 segundos antes de verificar novamente
-    
+    verificar_dados_novos()      # STAGING
+    verificar_dados_novos_dw()   # DW
+    sleep(30)
