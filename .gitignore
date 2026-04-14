@@ -4,3 +4,6 @@ __pycache__/*
 AdventureWorks.db
 StagingAdventureWorks.db
 .env
+ddl_tabelas_star.cpython-313.pyc
+dw/__pycache__/*
+utils/__pycache__/*

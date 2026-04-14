@@ -13,12 +13,19 @@ crie a tabela controle de carga e faça a inserção inicial manualmnente:
 
 ```sql
 CREATE SCHEMA staging AUTHORIZATION postgres;
+CREATE SCHEMA dw AUTHORIZATION postgres;
 -- DDL
 CREATE TABLE IF NOT EXISTS staging.controle_carga (
     carga_inicial BOOLEAN
 );
+
+CREATE TABLE IF NOT EXISTS dw.controle_carga (
+    carga_inicial BOOLEAN
+);
 -- INSERT
 INSERT INTO staging.controle_carga (carga_inicial)
+VALUES (FALSE);
+INSERT INTO dw.controle_carga (carga_inicial)
 VALUES (FALSE);
 ```
 

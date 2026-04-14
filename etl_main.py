@@ -1,12 +1,14 @@
-import sqlite3
 from time import sleep
 from utils.conn_sqlsqerver import SQLServerConnection
 from utils.conn_postgres import PostgresConnection
 from datetime import datetime
+
 from staging.create_table_staging import CreateTablesStaging
 from staging.insert_table_staging import InsertTableStaging
-import os
+from dw.ddl_tabelas_star import CreateTablesDW
+
 from utils.processos import processos
+import os
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -42,38 +44,56 @@ conn_olap.connect()
 # Usar para executar consultas e operações no banco de dados PostgreSQL
 #cursor_postgres = conn_postgres.cursor()
 
-# OLTP - Online Transaction Processing
-#conn_oltp = sqlite3.connect('AdventureWorks.db')
-
-# OLAP - Online Analytical Processing
-#conn_olap = sqlite3.connect('StagingAdventureWorks.db')
 cursor_olap = conn_olap.cursor()
 
 
 
 # #  CRIAR AS TABELAS DE STAGING  # #
 
-#criar_tabelas_staging = CreateTablesStaging(cursor_postgres)
-
-#criar_tabelas_staging_sqlite = CreateTablesStagingSqlite(cursor_olap)
-#criar_tabelas_staging_sqlite.create_tables()
 criar_tabelas_staging = CreateTablesStaging(cursor_olap, conn_olap)
 criar_tabelas_staging.create_tables()
 
 
-# # #  VERIFICAR DADOS NOVOS E PROCESSAR O ETL COM SQLITE  # #
-def verificar_carga_inicial():
-    cursor_olap.execute("""
-        SELECT carga_inicial FROM staging.controle_carga
+
+# # CRIAR AS TABELAS DO DW  # #
+criar_tabelas_dw = CreateTablesDW(cursor_olap, conn_olap)
+criar_tabelas_dw.create_tables_dw()
+
+
+
+def verificar_carga_inicial(schema):
+    cursor_olap.execute(f"""
+        SELECT COALESCE(BOOL_OR(carga_inicial), FALSE)
+        FROM {schema}.controle_carga;
     """)
-    
+
     result = cursor_olap.fetchone()
+    return result[0] if result else False
 
-    if not result or result[0] == False:
-        return False
-    
-    return True
+def garantir_tabelas_controle(schema):
+    cursor_olap.execute(f"""
+        CREATE TABLE IF NOT EXISTS {schema}.controle_carga (
+            carga_inicial BOOLEAN
+        );
+    """)
 
+    cursor_olap.execute(f"""
+        CREATE TABLE IF NOT EXISTS {schema}.controle_etl (
+            processo VARCHAR(100) PRIMARY KEY,
+            ultima_execucao TIMESTAMP
+        );
+    """)
+
+    # Garante pelo menos 1 linha
+    cursor_olap.execute(f"""
+        INSERT INTO {schema}.controle_carga (carga_inicial)
+        SELECT FALSE
+        WHERE NOT EXISTS (
+            SELECT 1 FROM {schema}.controle_carga
+        );
+    """)
+
+    conn_olap.connection.commit()
 
 def carga_inicial_staging():
     insert = InsertTableStaging(cursor_olap, conn_olap)
@@ -106,7 +126,116 @@ def carga_inicial_staging():
     insert.insert_salesorderdetail(rows)
 
 
-carga_inicial_staging()
+def carga_inicial_dw():
+    print("Rodando carga inicial DW...")
+
+    # =========================
+    # DIMENSÕES
+    # =========================
+
+    # 🟢 DimRegiao
+    cursor_olap.execute("""
+        INSERT INTO dw.DimRegiao (IdRegiao, NomeRegiao, Pais, Grupo)
+        SELECT 
+            TerritoryID,
+            Name,
+            CountryRegionCode,
+            "Group"
+        FROM staging.SalesTerritory
+        ON CONFLICT (IdRegiao) DO NOTHING;
+    """)
+
+    # 🟢 DimProduto
+    cursor_olap.execute("""
+        INSERT INTO dw.DimProduto (IdProduto, Nome, Preco, Custo)
+        SELECT 
+            ProductID,
+            Name,
+            ListPrice,
+            StandardCost
+        FROM staging.Product
+        ON CONFLICT (IdProduto) DO NOTHING;
+    """)
+
+    # 🟢 DimVendedor
+    cursor_olap.execute("""
+        INSERT INTO dw.DimVendedor (IdVendedor, Meta)
+        SELECT 
+            BusinessEntityID,
+            SalesQuota
+        FROM staging.SalesPerson
+        ON CONFLICT (IdVendedor) DO NOTHING;
+    """)
+
+    # 🟢 DimCliente (simples - pode melhorar depois)
+    cursor_olap.execute("""
+        INSERT INTO dw.DimCliente (IdCliente, TipoCliente)
+        SELECT DISTINCT
+            CustomerID,
+            'Regular'
+        FROM staging.SalesOrderHeader
+        ON CONFLICT (IdCliente) DO NOTHING;
+    """)
+
+    # 🟢 DimTempo
+    cursor_olap.execute("""
+        INSERT INTO dw.DimTempo (IdData, Data, Ano, Mes, NomeMes, Trimestre)
+        SELECT DISTINCT
+            CAST(TO_CHAR(OrderDate, 'YYYYMMDD') AS INT),
+            OrderDate,
+            EXTRACT(YEAR FROM OrderDate),
+            EXTRACT(MONTH FROM OrderDate),
+            TO_CHAR(OrderDate, 'Month'),
+            EXTRACT(QUARTER FROM OrderDate)
+        FROM staging.SalesOrderHeader
+        ON CONFLICT (IdData) DO NOTHING;
+    """)
+
+    conn_olap.connection.commit()
+
+    # =========================
+    # FATO
+    # =========================
+
+    cursor_olap.execute("""
+        INSERT INTO dw.FatoVendas (
+            IdPedido,
+            IdProduto,
+            IdCliente,
+            IdVendedor,
+            IdRegiao,
+            IdData,
+            DataEnvio,
+            Quantidade,
+            PrecoUnitario,
+            Receita,
+            Custo,
+            Lucro
+        )
+        SELECT
+            sod.SalesOrderID,
+            sod.ProductID,
+            soh.CustomerID,
+            soh.SalesPersonID,
+            soh.TerritoryID,
+            CAST(TO_CHAR(soh.OrderDate, 'YYYYMMDD') AS INT),
+            soh.ShipDate,
+            sod.OrderQty,
+            sod.UnitPrice,
+            sod.LineTotal,
+            (sod.OrderQty * p.StandardCost),
+            (sod.LineTotal - (sod.OrderQty * p.StandardCost))
+        FROM staging.SalesOrderDetail sod
+        JOIN staging.SalesOrderHeader soh 
+            ON sod.SalesOrderID = soh.SalesOrderID
+        JOIN staging.Product p 
+            ON sod.ProductID = p.ProductID
+        ON CONFLICT (IdPedido, IdProduto) DO NOTHING;
+    """)
+
+    conn_olap.connection.commit()
+
+    print("Carga inicial DW finalizada com sucesso!")
 
 def verificar_dados_novos():
 
@@ -160,32 +289,88 @@ def verificar_dados_novos():
         print(f"{processo}: {len(rows)} registros processados")
 
 
-if not verificar_carga_inicial():
-    print("Executando carga inicial...")
-    carga_inicial_staging()
-    
-    # dados iniciais para controle do processo ETL
-    cursor_olap.execute("""
-        INSERT INTO staging.controle_etl (processo, ultima_execucao)
-        VALUES 
-        ('Product', '1900-01-01'),
-        ('SalesPerson', '1900-01-01'),
-        ('SalesTerritory', '1900-01-01'),
-        ('SalesOrderHeader', '1900-01-01'),
-        ('SalesOrderDetail', '1900-01-01')
-        ON CONFLICT (processo) DO NOTHING;""")
-    conn_olap.connection.commit()
 
-    cursor_olap.execute("""
-        UPDATE staging.controle_carga
+
+
+def inicializar_controle_etl(cursor, conn, schema, processos):
+    print(f"Inicializando controle ETL para schema: {schema}")
+
+    valores = [
+        (processo, '1900-01-01')
+        for processo in processos.keys()
+    ]
+
+    cursor.executemany(f"""
+        INSERT INTO {schema}.controle_etl (processo, ultima_execucao)
+        VALUES (%s, %s)
+        ON CONFLICT (processo) DO NOTHING;
+    """, valores)
+
+    conn.connection.commit()
+
+
+
+PROCESSOS_STAGING = {
+    "Product": {},
+    "SalesPerson": {},
+    "SalesTerritory": {},
+    "SalesOrderHeader": {},
+    "SalesOrderDetail": {}
+}
+
+def inicializar_controle_etl(cursor, conn, schema, processos):
+    print(f"Inicializando controle ETL para schema: {schema}")
+
+    valores = [
+        (processo, '1900-01-01')
+        for processo in processos.keys()
+    ]
+
+    cursor.executemany(f"""
+        INSERT INTO {schema}.controle_etl (processo, ultima_execucao)
+        VALUES (%s, %s)
+        ON CONFLICT (processo) DO NOTHING;
+    """, valores)
+
+    conn.connection.commit()
+
+
+def executar_carga_inicial(schema, carga_func, processos):
+    print(f"Executando carga inicial para {schema}...")
+
+    carga_func()
+
+    inicializar_controle_etl(cursor_olap, conn_olap, schema, processos)
+
+    cursor_olap.execute(f"""
+        UPDATE {schema}.controle_carga
         SET carga_inicial = TRUE
     """)
+
     conn_olap.connection.commit()
 
+if not verificar_carga_inicial("staging"):
+    executar_carga_inicial(
+        schema="staging",
+        carga_func=carga_inicial_staging,
+        processos=PROCESSOS_STAGING
+    )
 
-else:
-    print("Carga inicial já realizada. Rodando incremental...")
-    verificar_dados_novos()
+PROCESSOS_DW = {
+    "DimProduto": {},
+    "DimCliente": {},
+    "DimTempo": {},
+    "DimVendedor": {},
+    "FatoVendas": {}
+}
+
+
+if not verificar_carga_inicial("dw"):
+    executar_carga_inicial(
+        schema="dw",
+        carga_func=carga_inicial_dw,
+        processos=PROCESSOS_DW
+    )
 
 # Mantendo a aplicação ligada
 while True:
