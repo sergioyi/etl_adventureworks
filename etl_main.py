@@ -180,15 +180,25 @@ def carga_inicial_dw():
 
     # 🟢 DimTempo
     cursor_olap.execute("""
-        INSERT INTO dw.DimTempo (IdData, Data, Ano, Mes, NomeMes, Trimestre)
+        INSERT INTO dw.DimTempo (
+            IdData,
+            Data,
+            AnoMes,
+            Ano,
+            Mes,
+            NomeMes,
+            Trimestre
+        )
         SELECT DISTINCT
-            CAST(TO_CHAR(OrderDate, 'YYYYMMDD') AS INT),
-            OrderDate,
-            EXTRACT(YEAR FROM OrderDate),
-            EXTRACT(MONTH FROM OrderDate),
-            TO_CHAR(OrderDate, 'Month'),
-            EXTRACT(QUARTER FROM OrderDate)
+            TO_CHAR(OrderDate,'YYYYMMDD')::INT,
+            OrderDate::DATE,
+            TO_CHAR(OrderDate,'YYYYMM')::INT,
+            EXTRACT(YEAR FROM OrderDate)::INT,
+            EXTRACT(MONTH FROM OrderDate)::INT,
+            TO_CHAR(OrderDate,'TMMonth'),
+            EXTRACT(QUARTER FROM OrderDate)::INT
         FROM staging.SalesOrderHeader
+        WHERE OrderDate IS NOT NULL
         ON CONFLICT (IdData) DO NOTHING;
     """)
 

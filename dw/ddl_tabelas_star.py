@@ -46,11 +46,21 @@ class CreateTablesDW:
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS dw.DimTempo (
             IdData INT PRIMARY KEY,
-            Data DATE,
-            Ano INT,
-            Mes INT,
+            Data DATE NOT NULL,
+            AnoMes INT NOT NULL,
+            Ano INT NOT NULL,
+            Mes INT NOT NULL,
             NomeMes VARCHAR(20),
-            Trimestre INT
+            Trimestre INT NOT NULL
+        );
+        """)
+        
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS dw.fatovendasmensal (
+            idvendames int NOT NULL,
+            anomes int NOT NULL,
+            receita int NOT NULL,
+            CONSTRAINT fatovendasmensal_pkey PRIMARY KEY (idvendames)
         );
         """)
 

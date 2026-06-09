@@ -32,6 +32,47 @@ class InsertDW:
         """)
         self.conn.connection.commit()
 
+    def insert_dimtempo(self):
+        self.cursor_olap.execute("""
+            INSERT INTO dw.DimTempo (
+                IdData,
+                Data,
+                AnoMes,
+                Ano,
+                Mes,
+                NomeMes,
+                Trimestre
+            )
+            SELECT
+                TO_CHAR(data,'YYYYMMDD')::INT AS IdData,
+                data AS Data,
+                TO_CHAR(data,'YYYYMM')::INT AS AnoMes,
+                EXTRACT(YEAR FROM data)::INT AS Ano,
+                EXTRACT(MONTH FROM data)::INT AS Mes,
+                TO_CHAR(data,'TMMonth') AS NomeMes,
+                EXTRACT(QUARTER FROM data)::INT AS Trimestre
+            FROM generate_series(
+                '2011-01-01'::DATE,
+                '2014-12-31'::DATE,
+                INTERVAL '1 day'
+            ) AS data
+            ON CONFLICT (IdData) DO NOTHING;
+        """)
+
+        self.conn.connection.commit()
+    
+    def isert_fatovendasmensal(self):
+        self.cursor.execute("""
+            INSERT INTO dw.fatovendasmensal
+            SELECT
+                dt.anoMes,
+                SUM(f.receita)
+            FROM dw.fatovendas f
+            JOIN dw.dimtempo dt
+                ON f.iddata = dt.Iddata
+            GROUP BY dt.anomes;
+        """)
+
     def insert_fatovendas(self):
         self.cursor.execute("""
             INSERT INTO dw.FatoVendas (
