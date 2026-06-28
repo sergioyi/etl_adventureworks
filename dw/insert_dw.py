@@ -66,7 +66,8 @@ class InsertDW:
             INSERT INTO dw.fatovendasmensal
             SELECT
                 dt.anoMes,
-                SUM(f.receita)
+                SUM(f.receita),
+                SUM(f.custo)
             FROM dw.fatovendas f
             JOIN dw.dimtempo dt
                 ON f.iddata = dt.Iddata

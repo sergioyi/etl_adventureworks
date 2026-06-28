@@ -59,7 +59,8 @@ class CreateTablesDW:
         CREATE TABLE IF NOT EXISTS dw.fatovendasmensal (
             idvendames int NOT NULL,
             anomes int NOT NULL,
-            receita int NOT NULL,
+           	receita numeric(12,2),
+            custo numeric(12,2),
             CONSTRAINT fatovendasmensal_pkey PRIMARY KEY (idvendames)
         );
         """)

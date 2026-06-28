@@ -7,3 +7,4 @@ StagingAdventureWorks.db
 ddl_tabelas_star.cpython-313.pyc
 dw/__pycache__/*
 utils/__pycache__/*
+etl/__pycache__/*
